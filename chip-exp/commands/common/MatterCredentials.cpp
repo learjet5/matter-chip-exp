@@ -192,7 +192,23 @@ CHIP_ERROR MatterCredentialConfig::Load(const char * manifestPath)
     }
 
     ReturnErrorOnFailure(ReadCertificateField(root, "rcac", mRCAC));
-    ReturnErrorOnFailure(ReadCertificateField(root, "icac", mICAC));
+
+    // A Matter chain may be three-tier (RCAC->ICAC->NOC) or two-tier (RCAC directly
+    // signs the NOC). NOC mode only imports an existing chain, so a missing or empty
+    // "icac" is valid and simply means the two-tier case: leave mICAC empty and the
+    // empty ICAC span flows through to the commissioner, which validates RCAC->NOC.
+    // ICAC mode signs NOCs with the ICAC key, so there the ICAC stays mandatory.
+    const bool icacProvided = root.isMember("icac") && root["icac"].isString() && !root["icac"].asString().empty();
+    if (icacProvided)
+    {
+        ReturnErrorOnFailure(ReadCertificateField(root, "icac", mICAC));
+    }
+    else
+    {
+        VerifyOrReturnError(mMode == MatterCredentialMode::kNOC, CHIP_ERROR_INVALID_ARGUMENT,
+                            ChipLogError(chipTool, "ICAC mode requires a non-empty 'icac' field"));
+        ChipLogProgress(chipTool, "No ICAC provided; using a two-tier (RCAC->NOC) certificate chain");
+    }
     const bool hasEpochIPK       = root.isMember("epoch_ipk");
     const bool hasOperationalIPK = root.isMember("operational_ipk");
     VerifyOrReturnError(hasEpochIPK != hasOperationalIPK, CHIP_ERROR_INVALID_ARGUMENT,
