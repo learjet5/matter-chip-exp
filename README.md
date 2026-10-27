@@ -131,6 +131,14 @@ To sign a NOC for a previously obtained NOCSR directly, use
 The issuer checks that the configured ICAC key pair matches the ICAC certificate
 and gives generated NOCs the same validity interval as the ICAC.
 
+## Scripts
+
+`scripts/` holds small Python helpers for preparing and inspecting the values a
+`--credentials` manifest needs — converting certificates between CHIP TLV and X.509
+DER, splitting P-256 keypairs into their manifest fields, and deriving the operational
+IPK from an epoch key. See `scripts/README.md`; the certificate and key converters
+expect `chip-cert` (built here) on `PATH`.
+
 ## Build
 
 `chip-exp` is currently based on Matter SDK v1.6.0.0. Point its local SDK link
