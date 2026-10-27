@@ -19,6 +19,7 @@
 #pragma once
 
 #include <commands/common/CredentialIssuerCommands.h>
+#include <commands/common/MatterCredentials.h>
 #include <controller/CHIPDeviceControllerFactory.h>
 #include <controller/ExampleOperationalCredentialsIssuer.h>
 #include <credentials/DeviceAttestationCredsProvider.h>
@@ -31,7 +32,16 @@ class ExampleCredentialIssuerCommands : public CredentialIssuerCommands
 public:
     CHIP_ERROR InitializeCredentialsIssuer(chip::PersistentStorageDelegate & storage) override
     {
+        if (mMode == MatterCredentialMode::kICAC)
+        {
+            return CHIP_NO_ERROR;
+        }
         return mOpCredsIssuer.Initialize(storage);
+    }
+    CHIP_ERROR ConfigureCredentials(const MatterCredentialConfig & config) override
+    {
+        mMode = config.GetMode();
+        return mMode == MatterCredentialMode::kICAC ? mConfiguredIssuer.Configure(config) : CHIP_NO_ERROR;
     }
     CHIP_ERROR SetupDeviceAttestation(chip::Controller::SetupParams & setupParams,
                                       const chip::Credentials::AttestationTrustStore * trustStore,
@@ -49,12 +59,35 @@ public:
         return CHIP_NO_ERROR;
     }
 
-    chip::Controller::OperationalCredentialsDelegate * GetCredentialIssuer() override { return &mOpCredsIssuer; }
-    void SetCredentialIssuerCATValues(chip::CATValues cats) override { mOpCredsIssuer.SetCATValuesForNextNOCRequest(cats); }
+    chip::Controller::OperationalCredentialsDelegate * GetCredentialIssuer() override
+    {
+        if (mMode == MatterCredentialMode::kNOC)
+        {
+            return nullptr;
+        }
+        return mMode == MatterCredentialMode::kICAC ? static_cast<chip::Controller::OperationalCredentialsDelegate *>(&mConfiguredIssuer)
+                                                      : static_cast<chip::Controller::OperationalCredentialsDelegate *>(&mOpCredsIssuer);
+    }
+    void SetCredentialIssuerCATValues(chip::CATValues cats) override
+    {
+        if (mMode == MatterCredentialMode::kICAC)
+        {
+            mConfiguredIssuer.SetCATValuesForNextNOCRequest(cats);
+        }
+        else if (mMode == MatterCredentialMode::kDefault)
+        {
+            mOpCredsIssuer.SetCATValuesForNextNOCRequest(cats);
+        }
+    }
     CHIP_ERROR GenerateControllerNOCChain(chip::NodeId nodeId, chip::FabricId fabricId, const chip::CATValues & cats,
                                           chip::Crypto::P256Keypair & keypair, chip::MutableByteSpan & rcac,
                                           chip::MutableByteSpan & icac, chip::MutableByteSpan & noc) override
     {
+        if (mMode == MatterCredentialMode::kICAC)
+        {
+            return mConfiguredIssuer.GenerateNOCChainAfterValidation(nodeId, fabricId, cats, keypair.Pubkey(), rcac, icac, noc);
+        }
+        VerifyOrReturnError(mMode != MatterCredentialMode::kNOC, CHIP_ERROR_INCORRECT_STATE);
         return mOpCredsIssuer.GenerateNOCChainAfterValidation(nodeId, fabricId, cats, keypair.Pubkey(), rcac, icac, noc);
     }
 
@@ -112,5 +145,7 @@ protected:
 
 private:
     chip::Controller::ExampleOperationalCredentialsIssuer mOpCredsIssuer;
+    ConfiguredOperationalCredentialsIssuer mConfiguredIssuer;
+    MatterCredentialMode mMode = MatterCredentialMode::kDefault;
     chip::Credentials::DeviceAttestationVerifier * mDacVerifier;
 };

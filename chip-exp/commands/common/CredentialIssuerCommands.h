@@ -25,6 +25,8 @@
 #include <lib/core/CHIPPersistentStorageDelegate.h>
 #include <vector>
 
+class MatterCredentialConfig;
+
 namespace chip {
 namespace Controller {
 struct SetupParams;
@@ -47,6 +49,8 @@ public:
      * @return CHIP_ERROR CHIP_NO_ERROR on success, or corresponding error code.
      */
     virtual CHIP_ERROR InitializeCredentialsIssuer(chip::PersistentStorageDelegate & storage) = 0;
+
+    virtual CHIP_ERROR ConfigureCredentials(const MatterCredentialConfig & config) = 0;
 
     /**
      * @brief

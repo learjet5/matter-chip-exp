@@ -31,6 +31,7 @@
 #include <app/icd/client/DefaultCheckInDelegate.h>
 #include <app/icd/client/DefaultICDClientStorage.h>
 #include <commands/common/CredentialIssuerCommands.h>
+#include <commands/common/MatterCredentials.h>
 #include <commands/example/ExampleCredentialIssuerCommands.h>
 #include <credentials/GroupDataProviderImpl.h>
 #include <credentials/PersistentStorageOpCertStore.h>
@@ -103,6 +104,8 @@ public:
         AddArgument(
             "commissioner-vendor-id", 0, UINT16_MAX, &mCommissionerVendorId,
             "The vendor id to use for chip-tool. If not provided, chip::VendorId::TestVendor1 (65521, 0xFFF1) will be used.");
+        AddArgument("credentials", &mCredentialManifestPath,
+                    "Path to a chip-exp credential manifest for NOC or ICAC mode.");
     }
 
     /////////// Command Interface /////////
@@ -230,6 +233,8 @@ private:
     chip::Optional<bool> mUseMaxSizedCerts;
     chip::Optional<bool> mOnlyAllowTrustedCdKeys;
     chip::Optional<char *> mDacRevocationSetPath;
+    chip::Optional<char *> mCredentialManifestPath;
+    MatterCredentialConfig mCredentialConfig;
 
     // Cached trust store so commands other than the original startup command
     // can spin up commissioners as needed.

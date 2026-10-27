@@ -481,40 +481,61 @@ CHIP_ERROR CHIPCommand::InitializeCommissioner(CommissionerIdentity & identity, 
 #endif // CHIP_DEVICE_CONFIG_ENABLE_COMMISSIONER_DISCOVERY
     chip::Controller::SetupParams commissionerParams;
 
+    if (mCredentialManifestPath.HasValue())
+    {
+        ReturnLogErrorOnFailure(mCredentialConfig.Load(mCredentialManifestPath.Value()));
+        ReturnLogErrorOnFailure(mCredIssuerCmds->ConfigureCredentials(mCredentialConfig));
+    }
+
     ReturnLogErrorOnFailure(mCredIssuerCmds->SetupDeviceAttestation(commissionerParams, sTrustStore, sRevocationDelegate));
 
     chip::Crypto::P256Keypair ephemeralKey;
+    chip::Crypto::P256Keypair importedKey;
 
     if (fabricId != chip::kUndefinedFabricId)
     {
-
-        // TODO - OpCreds should only be generated for pairing command
-        //        store the credentials in persistent storage, and
-        //        generate when not available in the storage.
-        ReturnLogErrorOnFailure(mCommissionerStorage.Init(identity.mName.c_str(), GetStorageDirectory().ValueOr(nullptr)));
-        if (mUseMaxSizedCerts.HasValue())
-        {
-            auto option = CredentialIssuerCommands::CredentialIssuerOptions::kMaximizeCertificateSizes;
-            mCredIssuerCmds->SetCredentialIssuerOption(option, mUseMaxSizedCerts.Value());
-        }
-
-        ReturnLogErrorOnFailure(mCredIssuerCmds->InitializeCredentialsIssuer(mCommissionerStorage));
-
         chip::MutableByteSpan nocSpan(identity.mNOC);
         chip::MutableByteSpan icacSpan(identity.mICAC);
         chip::MutableByteSpan rcacSpan(identity.mRCAC);
 
-        ReturnLogErrorOnFailure(ephemeralKey.Initialize(chip::Crypto::ECPKeyTarget::ECDSA));
+        if (mCredentialConfig.GetMode() == MatterCredentialMode::kNOC)
+        {
+            ReturnLogErrorOnFailure(importedKey.HazardousOperationLoadKeypairFromRaw(mCredentialConfig.GetPrivateKey(),
+                                                                                      mCredentialConfig.GetPublicKey()));
+            ReturnLogErrorOnFailure(chip::CopySpanToMutableSpan(mCredentialConfig.GetRCAC(), rcacSpan));
+            ReturnLogErrorOnFailure(chip::CopySpanToMutableSpan(mCredentialConfig.GetICAC(), icacSpan));
+            ReturnLogErrorOnFailure(chip::CopySpanToMutableSpan(mCredentialConfig.GetNOC(), nocSpan));
 
-        ReturnLogErrorOnFailure(mCredIssuerCmds->GenerateControllerNOCChain(identity.mLocalNodeId, fabricId,
-                                                                            mCommissionerStorage.GetCommissionerCATs(),
-                                                                            ephemeralKey, rcacSpan, icacSpan, nocSpan));
+            ChipLogProgress(chipTool, "Initializing commissioner from imported controller credentials");
+            commissionerParams.operationalKeypair = &importedKey;
+        }
+        else
+        {
+            // TODO - OpCreds should only be generated for pairing command
+            //        store the credentials in persistent storage, and
+            //        generate when not available in the storage.
+            ReturnLogErrorOnFailure(mCommissionerStorage.Init(identity.mName.c_str(), GetStorageDirectory().ValueOr(nullptr)));
+            if (mUseMaxSizedCerts.HasValue())
+            {
+                auto option = CredentialIssuerCommands::CredentialIssuerOptions::kMaximizeCertificateSizes;
+                mCredIssuerCmds->SetCredentialIssuerOption(option, mUseMaxSizedCerts.Value());
+            }
+
+            ReturnLogErrorOnFailure(mCredIssuerCmds->InitializeCredentialsIssuer(mCommissionerStorage));
+
+            ReturnLogErrorOnFailure(ephemeralKey.Initialize(chip::Crypto::ECPKeyTarget::ECDSA));
+
+            ReturnLogErrorOnFailure(mCredIssuerCmds->GenerateControllerNOCChain(identity.mLocalNodeId, fabricId,
+                                                                                mCommissionerStorage.GetCommissionerCATs(),
+                                                                                ephemeralKey, rcacSpan, icacSpan, nocSpan));
+
+            commissionerParams.operationalKeypair = &ephemeralKey;
+        }
 
         identity.mRCACLen = rcacSpan.size();
         identity.mICACLen = icacSpan.size();
         identity.mNOCLen  = nocSpan.size();
 
-        commissionerParams.operationalKeypair           = &ephemeralKey;
         commissionerParams.controllerRCAC               = rcacSpan;
         commissionerParams.controllerICAC               = icacSpan;
         commissionerParams.controllerNOC                = nocSpan;
@@ -538,9 +559,10 @@ CHIP_ERROR CHIPCommand::InitializeCommissioner(CommissionerIdentity & identity, 
 
         ReturnLogErrorOnFailure(chip::GroupTesting::InitData(&sGroupDataProvider, fabricIndex, compressed_fabric_id_span));
 
-        // Configure the default IPK for all fabrics used by CHIP-tool. The epoch
-        // key is the same, but the derived keys will be different for each fabric.
-        chip::ByteSpan defaultIpk = chip::GroupTesting::DefaultIpkValue::GetDefaultIpk();
+        // Use the imported fabric IPK when a credential manifest is active.
+        chip::ByteSpan defaultIpk = mCredentialConfig.GetMode() == MatterCredentialMode::kDefault
+            ? chip::GroupTesting::DefaultIpkValue::GetDefaultIpk()
+            : mCredentialConfig.GetIPK();
         ReturnLogErrorOnFailure(
             chip::Credentials::SetSingleIpkEpochKey(&sGroupDataProvider, fabricIndex, defaultIpk, compressed_fabric_id_span));
     }

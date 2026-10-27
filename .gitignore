@@ -1,0 +1,7 @@
+.DS_Store
+/build/
+/chip-exp/third_party/connectedhomeip
+/credentials/
+/.local/
+chip_tool_config*.ini
+chip_tool_kvs*

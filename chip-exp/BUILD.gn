@@ -72,6 +72,8 @@ static_library("chip-tool-utils") {
     "commands/common/Commands.h",
     "commands/common/CredentialIssuerCommands.h",
     "commands/common/HexConversion.h",
+    "commands/common/MatterCredentials.cpp",
+    "commands/common/MatterCredentials.h",
     "commands/common/RemoteDataModelLogger.cpp",
     "commands/common/RemoteDataModelLogger.h",
     "commands/dcl/DCLClient.cpp",
@@ -148,7 +150,7 @@ static_library("chip-tool-utils") {
   output_dir = root_out_dir
 }
 
-executable("chip-tool") {
+executable("chip-exp") {
   sources = [ "main.cpp" ]
 
   deps = [
@@ -160,5 +162,5 @@ executable("chip-tool") {
 }
 
 group("default") {
-  deps = [ ":chip-tool" ]
+  deps = [ ":chip-exp" ]
 }
