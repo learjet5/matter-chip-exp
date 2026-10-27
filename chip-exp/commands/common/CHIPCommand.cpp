@@ -487,8 +487,14 @@ CHIP_ERROR CHIPCommand::InitializeCommissioner(CommissionerIdentity & identity, 
 {
     std::unique_ptr<ChipDeviceCommissioner> commissioner = std::make_unique<ChipDeviceCommissioner>();
 #if CHIP_DEVICE_CONFIG_ENABLE_COMMISSIONER_DISCOVERY
-    VerifyOrReturnError(chip::CanCastTo<uint16_t>(CHIP_UDC_PORT + fabricId), CHIP_ERROR_INVALID_ARGUMENT);
-    uint16_t udcListenPort = static_cast<uint16_t>(CHIP_UDC_PORT + fabricId);
+    // The UDC listen port is offset by the fabric id so concurrent commissioners on
+    // different fabrics do not collide. chip-tool's own identities use small fabric
+    // ids (1/2/3), but an imported credential manifest can carry a full 64-bit fabric
+    // id, and CHIP_UDC_PORT + fabricId would then overflow uint16_t. Fold the fabric
+    // id into its low byte before offsetting: identical port for small ids, no
+    // overflow for imported fabrics. (UDC discovery is unused when driving an
+    // already-commissioned device, so the exact port value does not matter here.)
+    uint16_t udcListenPort = static_cast<uint16_t>(CHIP_UDC_PORT + (fabricId & 0xFF));
     ReturnErrorOnFailure(commissioner->SetUdcListenPort(udcListenPort));
 #endif // CHIP_DEVICE_CONFIG_ENABLE_COMMISSIONER_DISCOVERY
     chip::Controller::SetupParams commissionerParams;
