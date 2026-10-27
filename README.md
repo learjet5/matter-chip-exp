@@ -20,15 +20,14 @@ initialization primitives.
 ## Credential modes
 
 Pass `--credentials <manifest.json>` to any command that initializes a
-commissioner. Every credential is embedded as a standard padded Base64 string.
+commissioner/controller. Every credential is embedded as a standard padded
+Base64 string.
 Certificate fields accept either X.509 DER or Matter TLV certificate bytes and
 are converted to X.509 DER internally. P-256 public and private key fields
 encode a raw 65-byte uncompressed point and a raw 32-byte scalar, respectively.
-The IPK field encodes the 16-byte **epoch** IPK (the Identity Protection Key epoch
-key — the value an administrator provisions via `AddNOC`), **not** the derived
-operational group key. The SDK derives the operational key from this epoch value and
-the compressed fabric ID internally, so supplying an already-derived operational key
-here yields the wrong operational key and CASE session establishment will fail.
+Provide exactly one 16-byte IPK field: `epoch_ipk` or `operational_ipk`. The SDK
+derives the operational IPK from an epoch IPK and the compressed fabric ID;
+chip-exp injects an already-derived operational IPK directly.
 
 Keep manifests outside the repository, or under the ignored `credentials/`
 directory. `chip-exp` logs the selected mode but never logs credential contents.
@@ -46,9 +45,12 @@ chain, operational key pair, and fabric IPK:
   "noc": "<Base64 X.509 DER or Matter TLV certificate>",
   "operational_public_key": "<Base64 raw 65-byte P-256 public key>",
   "operational_private_key": "<Base64 raw 32-byte P-256 private key>",
-  "ipk": "<Base64 raw 16-byte epoch IPK (not the derived operational key)>"
+  "epoch_ipk": "<Base64 raw 16-byte epoch IPK>"
 }
 ```
+
+Replace `epoch_ipk` with `operational_ipk` when only the derived operational IPK
+is available.
 
 For example, the following command uses the imported identity to establish a
 CASE session and read an attribute:
@@ -76,9 +78,13 @@ ICAC, and IPK are returned with each generated chain:
   "icac": "<Base64 X.509 DER or Matter TLV certificate>",
   "icac_public_key": "<Base64 raw 65-byte P-256 public key>",
   "icac_private_key": "<Base64 raw 32-byte P-256 private key>",
-  "ipk": "<Base64 raw 16-byte epoch IPK (not the derived operational key)>"
+  "epoch_ipk": "<Base64 raw 16-byte epoch IPK>"
 }
 ```
+
+`operational_ipk` can instead initialize the local commissioner for an existing
+fabric. It cannot commission a new device because `AddNOC` requires the epoch
+IPK and the derivation is not reversible.
 
 Normal pairing commands use the configured issuer automatically. The local
 commissioner node ID can be selected with `--commissioner-nodeid`, and CATs for

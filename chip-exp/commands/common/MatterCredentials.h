@@ -7,12 +7,14 @@
 
 #include <controller/OperationalCredentialsDelegate.h>
 #include <credentials/CHIPCert.h>
+#include <credentials/GroupDataProviderImpl.h>
 #include <crypto/CHIPCryptoPAL.h>
 #include <lib/core/CASEAuthTag.h>
 #include <lib/core/CHIPError.h>
 #include <lib/support/Span.h>
 
 #include <array>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -21,6 +23,13 @@ enum class MatterCredentialMode
     kDefault,
     kNOC,
     kICAC,
+};
+
+enum class MatterIPKType
+{
+    kNone,
+    kEpoch,
+    kOperational,
 };
 
 /** Credentials embedded in a chip-exp JSON manifest. */
@@ -35,8 +44,7 @@ public:
     chip::ByteSpan GetNOC() const { return chip::ByteSpan(mNOC.data(), mNOC.size()); }
     chip::ByteSpan GetPublicKey() const { return chip::ByteSpan(mPublicKey.data(), mPublicKey.size()); }
     chip::ByteSpan GetPrivateKey() const { return chip::ByteSpan(mPrivateKey.data(), mPrivateKey.size()); }
-    // Returns the 16-byte EPOCH IPK (the IPK epoch key), NOT the derived operational group key.
-    // The SDK derives the operational key from this epoch value and the compressed fabric ID.
+    MatterIPKType GetIPKType() const { return mIPKType; }
     chip::ByteSpan GetIPK() const { return chip::ByteSpan(mIPK.data(), mIPK.size()); }
 
 private:
@@ -46,7 +54,24 @@ private:
     std::vector<uint8_t> mNOC;
     std::vector<uint8_t> mPublicKey;
     std::vector<uint8_t> mPrivateKey;
-    std::vector<uint8_t> mIPK; // 16-byte EPOCH IPK; the operational group key is derived by the SDK
+    MatterIPKType mIPKType = MatterIPKType::kNone;
+    std::vector<uint8_t> mIPK;
+};
+
+/** Extends the stock provider with direct operational-IPK injection for imported fabrics. */
+class ChipExpGroupDataProvider : public chip::Credentials::GroupDataProviderImpl
+{
+public:
+    using GroupDataProviderImpl::GroupDataProviderImpl;
+
+    CHIP_ERROR SetSingleOperationalIpk(chip::FabricIndex fabricIndex, chip::ByteSpan operationalIpk);
+    void ClearOperationalIpk(chip::FabricIndex fabricIndex);
+    CHIP_ERROR GetIpkKeySet(chip::FabricIndex fabricIndex, KeySet & outKeySet) override;
+    CHIP_ERROR RemoveFabric(chip::FabricIndex fabricIndex) override;
+    void Finish() override;
+
+private:
+    std::map<chip::FabricIndex, std::array<uint8_t, chip::Crypto::CHIP_CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES>> mOperationalIpks;
 };
 
 /** Signs NOCs with an imported ICAC key while leaving the SDK unchanged. */
@@ -76,7 +101,7 @@ private:
     chip::Crypto::P256Keypair mICACKeypair;
     std::vector<uint8_t> mRCAC;
     std::vector<uint8_t> mICAC;
-    std::array<uint8_t, chip::Crypto::CHIP_CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES> mIPK{}; // 16-byte EPOCH IPK
+    std::array<uint8_t, chip::Crypto::CHIP_CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES> mIPK{};
     chip::Credentials::ChipDN mIssuerDN;
     uint32_t mValidityStart = 0;
     uint32_t mValidityEnd   = 0;
@@ -85,4 +110,5 @@ private:
     chip::CATValues mCATs    = chip::kUndefinedCATs;
     int64_t mSerialNumber    = 1;
     bool mConfigured         = false;
+    bool mHasEpochIPK        = false;
 };

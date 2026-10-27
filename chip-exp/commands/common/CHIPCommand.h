@@ -170,7 +170,7 @@ protected:
     chip::Credentials::PersistentStorageOpCertStore mOpCertStore;
     static chip::Crypto::RawKeySessionKeystore sSessionKeystore;
 
-    static chip::Credentials::GroupDataProviderImpl sGroupDataProvider;
+    static ChipExpGroupDataProvider sGroupDataProvider;
     static chip::app::DefaultICDClientStorage sICDClientStorage;
     static chip::app::DefaultCheckInDelegate sCheckInDelegate;
     static chip::app::CheckInHandler sCheckInHandler;

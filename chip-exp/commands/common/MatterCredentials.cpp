@@ -132,13 +132,14 @@ CHIP_ERROR MatterCredentialConfig::Load(const char * manifestPath)
 
     ReturnErrorOnFailure(ReadCertificateField(root, "rcac", mRCAC));
     ReturnErrorOnFailure(ReadCertificateField(root, "icac", mICAC));
-    // "ipk" is the 16-byte EPOCH Identity Protection Key (the IPK epoch key, i.e. the value an
-    // administrator provisions via AddNOC) -- NOT the derived operational group key. In NOC mode
-    // CHIPCommand feeds this to Credentials::SetSingleIpkEpochKey(); in ICAC mode it is handed back
-    // from GenerateNOCChain(). In both cases the SDK derives the operational key from this epoch
-    // value and the compressed fabric ID, so supplying an already-derived operational key here
-    // produces the wrong operational key and breaks CASE.
-    ReturnErrorOnFailure(ReadBase64Field(root, "ipk", mIPK, Crypto::CHIP_CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES,
+    const bool hasEpochIPK       = root.isMember("epoch_ipk");
+    const bool hasOperationalIPK = root.isMember("operational_ipk");
+    VerifyOrReturnError(hasEpochIPK != hasOperationalIPK, CHIP_ERROR_INVALID_ARGUMENT,
+                        ChipLogError(chipTool, "Credential manifest requires exactly one of 'epoch_ipk' or 'operational_ipk'"));
+
+    const char * ipkField = hasEpochIPK ? "epoch_ipk" : "operational_ipk";
+    mIPKType              = hasEpochIPK ? MatterIPKType::kEpoch : MatterIPKType::kOperational;
+    ReturnErrorOnFailure(ReadBase64Field(root, ipkField, mIPK, Crypto::CHIP_CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES,
                                          Crypto::CHIP_CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES));
 
     const char * publicKeyField  = mMode == MatterCredentialMode::kNOC ? "operational_public_key" : "icac_public_key";
@@ -162,6 +163,56 @@ CHIP_ERROR MatterCredentialConfig::Load(const char * manifestPath)
     return CHIP_NO_ERROR;
 }
 
+CHIP_ERROR ChipExpGroupDataProvider::SetSingleOperationalIpk(FabricIndex fabricIndex, ByteSpan operationalIpk)
+{
+    VerifyOrReturnError(IsValidFabricIndex(fabricIndex) &&
+                            operationalIpk.size() == Crypto::CHIP_CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES,
+                        CHIP_ERROR_INVALID_ARGUMENT);
+
+    auto & storedIPK = mOperationalIpks[fabricIndex];
+    std::copy(operationalIpk.begin(), operationalIpk.end(), storedIPK.begin());
+    return CHIP_NO_ERROR;
+}
+
+void ChipExpGroupDataProvider::ClearOperationalIpk(FabricIndex fabricIndex)
+{
+    auto storedIPK = mOperationalIpks.find(fabricIndex);
+    if (storedIPK != mOperationalIpks.end())
+    {
+        Crypto::ClearSecretData(storedIPK->second.data(), storedIPK->second.size());
+        mOperationalIpks.erase(storedIPK);
+    }
+}
+
+CHIP_ERROR ChipExpGroupDataProvider::GetIpkKeySet(FabricIndex fabricIndex, KeySet & outKeySet)
+{
+    const auto storedIPK = mOperationalIpks.find(fabricIndex);
+    if (storedIPK == mOperationalIpks.end())
+    {
+        return GroupDataProviderImpl::GetIpkKeySet(fabricIndex, outKeySet);
+    }
+
+    outKeySet = KeySet(kIdentityProtectionKeySetId, SecurityPolicy::kTrustFirst, 1);
+    std::copy(storedIPK->second.begin(), storedIPK->second.end(), outKeySet.epoch_keys[0].key);
+    return CHIP_NO_ERROR;
+}
+
+CHIP_ERROR ChipExpGroupDataProvider::RemoveFabric(FabricIndex fabricIndex)
+{
+    ClearOperationalIpk(fabricIndex);
+    return GroupDataProviderImpl::RemoveFabric(fabricIndex);
+}
+
+void ChipExpGroupDataProvider::Finish()
+{
+    for (auto & storedIPK : mOperationalIpks)
+    {
+        Crypto::ClearSecretData(storedIPK.second.data(), storedIPK.second.size());
+    }
+    mOperationalIpks.clear();
+    GroupDataProviderImpl::Finish();
+}
+
 CHIP_ERROR ConfiguredOperationalCredentialsIssuer::Configure(const MatterCredentialConfig & config)
 {
     VerifyOrReturnError(config.GetMode() == MatterCredentialMode::kICAC, CHIP_ERROR_INVALID_ARGUMENT);
@@ -177,6 +228,7 @@ CHIP_ERROR ConfiguredOperationalCredentialsIssuer::Configure(const MatterCredent
     mRCAC.assign(config.GetRCAC().begin(), config.GetRCAC().end());
     mICAC.assign(config.GetICAC().begin(), config.GetICAC().end());
     std::copy(config.GetIPK().begin(), config.GetIPK().end(), mIPK.begin());
+    mHasEpochIPK = config.GetIPKType() == MatterIPKType::kEpoch;
 
     mIssuerDN = Credentials::ChipDN{};
     ReturnErrorOnFailure(Credentials::ExtractSubjectDNFromX509Cert(config.GetICAC(), mIssuerDN));
@@ -230,6 +282,8 @@ CHIP_ERROR ConfiguredOperationalCredentialsIssuer::GenerateNOCChain(
     Callback::Callback<Controller::OnNOCChainGeneration> * onCompletion)
 {
     VerifyOrReturnError(mConfigured && onCompletion != nullptr, CHIP_ERROR_INCORRECT_STATE);
+    VerifyOrReturnError(mHasEpochIPK, CHIP_ERROR_INVALID_IPK,
+                        ChipLogError(chipTool, "ICAC commissioning requires 'epoch_ipk'; an operational IPK cannot be reversed"));
     (void) csrNonce;
     (void) attestationSignature;
     (void) attestationChallenge;
@@ -259,8 +313,6 @@ CHIP_ERROR ConfiguredOperationalCredentialsIssuer::GenerateNOCChain(
 
     const ByteSpan icac(mICAC.data(), mICAC.size());
     const ByteSpan rcac(mRCAC.data(), mRCAC.size());
-    // mIPK is the EPOCH IPK; the commissioning flow installs it as the IPK epoch key and the SDK
-    // derives the operational group key from it (together with the compressed fabric ID).
     Crypto::IdentityProtectionKeySpan ipk(mIPK.data());
     onCompletion->mCall(onCompletion->mContext, CHIP_NO_ERROR, noc, icac, rcac, MakeOptional(ipk), Optional<NodeId>());
     return CHIP_NO_ERROR;

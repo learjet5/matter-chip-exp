@@ -53,7 +53,7 @@ constexpr char kCDTrustStorePathVariable[]      = "CHIPTOOL_CD_TRUST_STORE_PATH"
 const chip::Credentials::AttestationTrustStore * CHIPCommand::sTrustStore                 = nullptr;
 chip::Credentials::DeviceAttestationRevocationDelegate * CHIPCommand::sRevocationDelegate = nullptr;
 
-chip::Credentials::GroupDataProviderImpl CHIPCommand::sGroupDataProvider{ kMaxGroupsPerFabric, kMaxGroupKeysPerFabric };
+ChipExpGroupDataProvider CHIPCommand::sGroupDataProvider{ kMaxGroupsPerFabric, kMaxGroupKeysPerFabric };
 // All fabrics share the same ICD client storage.
 chip::app::DefaultICDClientStorage CHIPCommand::sICDClientStorage;
 chip::Crypto::RawKeySessionKeystore CHIPCommand::sSessionKeystore;
@@ -559,12 +559,19 @@ CHIP_ERROR CHIPCommand::InitializeCommissioner(CommissionerIdentity & identity, 
 
         ReturnLogErrorOnFailure(chip::GroupTesting::InitData(&sGroupDataProvider, fabricIndex, compressed_fabric_id_span));
 
-        // Use the imported fabric IPK when a credential manifest is active.
-        chip::ByteSpan defaultIpk = mCredentialConfig.GetMode() == MatterCredentialMode::kDefault
-            ? chip::GroupTesting::DefaultIpkValue::GetDefaultIpk()
-            : mCredentialConfig.GetIPK();
-        ReturnLogErrorOnFailure(
-            chip::Credentials::SetSingleIpkEpochKey(&sGroupDataProvider, fabricIndex, defaultIpk, compressed_fabric_id_span));
+        if (mCredentialConfig.GetIPKType() == MatterIPKType::kOperational)
+        {
+            ReturnLogErrorOnFailure(sGroupDataProvider.SetSingleOperationalIpk(fabricIndex, mCredentialConfig.GetIPK()));
+        }
+        else
+        {
+            sGroupDataProvider.ClearOperationalIpk(fabricIndex);
+            const chip::ByteSpan epochIPK = mCredentialConfig.GetIPKType() == MatterIPKType::kEpoch
+                ? mCredentialConfig.GetIPK()
+                : chip::GroupTesting::DefaultIpkValue::GetDefaultIpk();
+            ReturnLogErrorOnFailure(chip::Credentials::SetSingleIpkEpochKey(&sGroupDataProvider, fabricIndex, epochIPK,
+                                                                            compressed_fabric_id_span));
+        }
     }
 
     ReturnErrorOnFailure(CHIPCommand::sICDClientStorage.UpdateFabricList(commissioner->GetFabricIndex()));
