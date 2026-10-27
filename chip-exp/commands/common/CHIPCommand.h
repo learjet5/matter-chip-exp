@@ -39,6 +39,7 @@
 #include <crypto/RawKeySessionKeystore.h>
 
 #include <string>
+#include <tuple>
 
 inline constexpr char kIdentityAlpha[] = "alpha";
 inline constexpr char kIdentityBeta[]  = "beta";
@@ -195,16 +196,18 @@ private:
     void MaybeTearDownStack();
 
     CHIP_ERROR EnsureCommissionerForIdentity(std::string identity);
+    CHIP_ERROR GetIdentityFabricId(const std::string & identity, chip::FabricId * fabricId);
 
-    // Commissioners are keyed by name and local node id.
+    // Commissioners are keyed by name, local node id, and fabric id.
     struct CommissionerIdentity
     {
         bool operator<(const CommissionerIdentity & other) const
         {
-            return mName < other.mName || (mName == other.mName && mLocalNodeId < other.mLocalNodeId);
+            return std::tie(mName, mLocalNodeId, mFabricId) < std::tie(other.mName, other.mLocalNodeId, other.mFabricId);
         }
         std::string mName;
         chip::NodeId mLocalNodeId;
+        chip::FabricId mFabricId;
         uint8_t mRCAC[chip::Controller::kMaxCHIPDERCertLength] = {};
         uint8_t mICAC[chip::Controller::kMaxCHIPDERCertLength] = {};
         uint8_t mNOC[chip::Controller::kMaxCHIPDERCertLength]  = {};

@@ -72,11 +72,11 @@ public:
         return mMode == MatterCredentialMode::kICAC ? static_cast<chip::Controller::OperationalCredentialsDelegate *>(&mConfiguredIssuer)
                                                       : static_cast<chip::Controller::OperationalCredentialsDelegate *>(&mOpCredsIssuer);
     }
-    void SetCredentialIssuerCATValues(chip::CATValues cats) override
+    void SetTargetCATValues(chip::CATValues cats) override
     {
         if (mMode == MatterCredentialMode::kICAC)
         {
-            mConfiguredIssuer.SetCATValuesForNextNOCRequest(cats);
+            mConfiguredIssuer.SetTargetCATValues(cats);
         }
         else if (mMode == MatterCredentialMode::kDefault)
         {

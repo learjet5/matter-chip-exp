@@ -109,6 +109,13 @@ CHIP_ERROR GetAttestationRevocationDelegate(const char * revocationSetPath,
 
 CHIP_ERROR CHIPCommand::MaybeSetUpStack()
 {
+    mCredentialConfig = MatterCredentialConfig{};
+    if (mCredentialManifestPath.HasValue())
+    {
+        ReturnLogErrorOnFailure(mCredentialConfig.Load(mCredentialManifestPath.Value()));
+    }
+    ReturnLogErrorOnFailure(mCredIssuerCmds->ConfigureCredentials(mCredentialConfig));
+
     if (IsInteractive())
     {
         return CHIP_NO_ERROR;
@@ -183,7 +190,7 @@ CHIP_ERROR CHIPCommand::MaybeSetUpStack()
     ReturnLogErrorOnFailure(sCheckInHandler.Init(DeviceControllerFactory::GetInstance().GetSystemState()->ExchangeMgr(),
                                                  &sICDClientStorage, ChipToolCheckInDelegate(), engine));
 
-    CommissionerIdentity nullIdentity{ kIdentityNull, chip::kUndefinedNodeId };
+    CommissionerIdentity nullIdentity{ kIdentityNull, chip::kUndefinedNodeId, chip::kUndefinedFabricId };
     ReturnLogErrorOnFailure(InitializeCommissioner(nullIdentity, kIdentityNullFabricId));
 
     // After initializing first commissioner, add the additional CD certs once
@@ -238,37 +245,51 @@ CHIP_ERROR CHIPCommand::EnsureCommissionerForIdentity(std::string identity)
 {
     chip::NodeId nodeId;
     ReturnErrorOnFailure(GetIdentityNodeId(identity, &nodeId));
-    CommissionerIdentity lookupKey{ identity, nodeId };
+    chip::FabricId fabricId;
+    ReturnErrorOnFailure(GetIdentityFabricId(identity, &fabricId));
+    CommissionerIdentity lookupKey{ identity, nodeId, fabricId };
     if (mCommissioners.find(lookupKey) != mCommissioners.end())
     {
         return CHIP_NO_ERROR;
     }
 
-    // Need to initialize the commissioner.
-    chip::FabricId fabricId;
+    return InitializeCommissioner(lookupKey, fabricId);
+}
+
+CHIP_ERROR CHIPCommand::GetIdentityFabricId(const std::string & identity, chip::FabricId * fabricId)
+{
+    if (mCredentialConfig.GetMode() == MatterCredentialMode::kICAC)
+    {
+        *fabricId = mCredentialConfig.GetFabricId();
+        return CHIP_NO_ERROR;
+    }
+
     if (identity == kIdentityAlpha)
     {
-        fabricId = kIdentityAlphaFabricId;
+        *fabricId = kIdentityAlphaFabricId;
     }
     else if (identity == kIdentityBeta)
     {
-        fabricId = kIdentityBetaFabricId;
+        *fabricId = kIdentityBetaFabricId;
     }
     else if (identity == kIdentityGamma)
     {
-        fabricId = kIdentityGammaFabricId;
+        *fabricId = kIdentityGammaFabricId;
+    }
+    else if (identity == kIdentityNull)
+    {
+        *fabricId = kIdentityNullFabricId;
     }
     else
     {
-        fabricId = strtoull(identity.c_str(), nullptr, 0);
-        if (fabricId < kIdentityOtherFabricId)
+        *fabricId = strtoull(identity.c_str(), nullptr, 0);
+        if (*fabricId < kIdentityOtherFabricId)
         {
             ChipLogError(chipTool, "Invalid identity: %s", identity.c_str());
             return CHIP_ERROR_INVALID_ARGUMENT;
         }
     }
-
-    return InitializeCommissioner(lookupKey, fabricId);
+    return CHIP_NO_ERROR;
 }
 
 CHIP_ERROR CHIPCommand::Run()
@@ -381,6 +402,15 @@ std::string CHIPCommand::GetIdentity()
 
 CHIP_ERROR CHIPCommand::GetIdentityNodeId(std::string identity, chip::NodeId * nodeId)
 {
+    if (mCredentialConfig.GetMode() == MatterCredentialMode::kICAC)
+    {
+        VerifyOrReturnError(!mCommissionerNodeId.HasValue(), CHIP_ERROR_INVALID_ARGUMENT,
+                            ChipLogError(chipTool, "ICAC mode reads controller_nodeid from the credential manifest; remove "
+                                                   "--commissioner-nodeid"));
+        *nodeId = mCredentialConfig.GetControllerNodeId();
+        return CHIP_NO_ERROR;
+    }
+
     if (mCommissionerNodeId.HasValue())
     {
         *nodeId = mCommissionerNodeId.Value();
@@ -409,7 +439,9 @@ CHIP_ERROR CHIPCommand::GetIdentityRootCertificate(std::string identity, chip::B
 
     chip::NodeId nodeId;
     VerifyOrDie(GetIdentityNodeId(identity, &nodeId) == CHIP_NO_ERROR);
-    CommissionerIdentity lookupKey{ identity, nodeId };
+    chip::FabricId fabricId;
+    VerifyOrDie(GetIdentityFabricId(identity, &fabricId) == CHIP_NO_ERROR);
+    CommissionerIdentity lookupKey{ identity, nodeId, fabricId };
     auto item = mCommissioners.find(lookupKey);
 
     span = chip::ByteSpan(item->first.mRCAC, item->first.mRCACLen);
@@ -418,32 +450,10 @@ CHIP_ERROR CHIPCommand::GetIdentityRootCertificate(std::string identity, chip::B
 
 chip::FabricId CHIPCommand::CurrentCommissionerId()
 {
-    chip::FabricId id;
-
     std::string name = GetIdentity();
-    if (name.compare(kIdentityAlpha) == 0)
-    {
-        id = kIdentityAlphaFabricId;
-    }
-    else if (name.compare(kIdentityBeta) == 0)
-    {
-        id = kIdentityBetaFabricId;
-    }
-    else if (name.compare(kIdentityGamma) == 0)
-    {
-        id = kIdentityGammaFabricId;
-    }
-    else if (name.compare(kIdentityNull) == 0)
-    {
-        id = kIdentityNullFabricId;
-    }
-    else if ((id = strtoull(name.c_str(), nullptr, 0)) < kIdentityOtherFabricId)
-    {
-        VerifyOrDieWithMsg(false, chipTool, "Unknown commissioner name: %s. Supported names are [%s, %s, %s, 4, 5...]",
-                           name.c_str(), kIdentityAlpha, kIdentityBeta, kIdentityGamma);
-    }
-
-    return id;
+    chip::FabricId fabricId;
+    VerifyOrDie(GetIdentityFabricId(name, &fabricId) == CHIP_NO_ERROR);
+    return fabricId;
 }
 
 chip::Controller::DeviceCommissioner & CHIPCommand::CurrentCommissioner()
@@ -460,7 +470,9 @@ chip::Controller::DeviceCommissioner & CHIPCommand::GetCommissioner(std::string 
 
     chip::NodeId nodeId;
     VerifyOrDie(GetIdentityNodeId(identity, &nodeId) == CHIP_NO_ERROR);
-    CommissionerIdentity lookupKey{ identity, nodeId };
+    chip::FabricId fabricId;
+    VerifyOrDie(GetIdentityFabricId(identity, &fabricId) == CHIP_NO_ERROR);
+    CommissionerIdentity lookupKey{ identity, nodeId, fabricId };
     auto item = mCommissioners.find(lookupKey);
     VerifyOrDie(item != mCommissioners.end());
     return *item->second;
@@ -480,12 +492,6 @@ CHIP_ERROR CHIPCommand::InitializeCommissioner(CommissionerIdentity & identity, 
     ReturnErrorOnFailure(commissioner->SetUdcListenPort(udcListenPort));
 #endif // CHIP_DEVICE_CONFIG_ENABLE_COMMISSIONER_DISCOVERY
     chip::Controller::SetupParams commissionerParams;
-
-    if (mCredentialManifestPath.HasValue())
-    {
-        ReturnLogErrorOnFailure(mCredentialConfig.Load(mCredentialManifestPath.Value()));
-        ReturnLogErrorOnFailure(mCredIssuerCmds->ConfigureCredentials(mCredentialConfig));
-    }
 
     ReturnLogErrorOnFailure(mCredIssuerCmds->SetupDeviceAttestation(commissionerParams, sTrustStore, sRevocationDelegate));
 
@@ -525,9 +531,11 @@ CHIP_ERROR CHIPCommand::InitializeCommissioner(CommissionerIdentity & identity, 
 
             ReturnLogErrorOnFailure(ephemeralKey.Initialize(chip::Crypto::ECPKeyTarget::ECDSA));
 
-            ReturnLogErrorOnFailure(mCredIssuerCmds->GenerateControllerNOCChain(identity.mLocalNodeId, fabricId,
-                                                                                mCommissionerStorage.GetCommissionerCATs(),
-                                                                                ephemeralKey, rcacSpan, icacSpan, nocSpan));
+            const chip::CATValues & controllerCATs = mCredentialConfig.GetMode() == MatterCredentialMode::kICAC
+                ? mCredentialConfig.GetControllerCATs()
+                : mCommissionerStorage.GetCommissionerCATs();
+            ReturnLogErrorOnFailure(mCredIssuerCmds->GenerateControllerNOCChain(
+                identity.mLocalNodeId, fabricId, controllerCATs, ephemeralKey, rcacSpan, icacSpan, nocSpan));
 
             commissionerParams.operationalKeypair = &ephemeralKey;
         }

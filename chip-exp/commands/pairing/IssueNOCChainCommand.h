@@ -35,23 +35,24 @@ public:
     {
         AddArgument("elements", &mNOCSRElements, "NOCSRElements encoded in hexadecimal");
         AddArgument("node-id", 0, UINT64_MAX, &mNodeId, "The target node id");
-        AddArgument("case-auth-tags", 1, UINT32_MAX, &mCASEAuthTags, "CATs to encode in the issued NOC");
+        AddArgument("target-cat", 1, UINT64_MAX, &mTargetCATs,
+                    "CATs to encode in the target NOC, as 32-bit CATs or 64-bit ACL CAT subjects");
     }
 
     /////////// CHIPCommand Interface /////////
     CHIP_ERROR RunCommand() override
     {
         chip::CATValues cats = chip::kUndefinedCATs;
-        if (mCASEAuthTags.HasValue())
+        if (mTargetCATs.HasValue())
         {
-            VerifyOrReturnError(mCASEAuthTags.Value().size() <= chip::kMaxSubjectCATAttributeCount, CHIP_ERROR_INVALID_ARGUMENT);
-            for (size_t index = 0; index < mCASEAuthTags.Value().size(); ++index)
+            VerifyOrReturnError(mTargetCATs.Value().size() <= chip::kMaxSubjectCATAttributeCount, CHIP_ERROR_INVALID_ARGUMENT);
+            for (size_t index = 0; index < mTargetCATs.Value().size(); ++index)
             {
-                cats.values[index] = mCASEAuthTags.Value()[index];
+                ReturnErrorOnFailure(NormalizeCATValue(mTargetCATs.Value()[index], cats.values[index]));
             }
             VerifyOrReturnError(cats.AreValid(), CHIP_ERROR_INVALID_ARGUMENT);
         }
-        mCredIssuerCmds->SetCredentialIssuerCATValues(cats);
+        mCredIssuerCmds->SetTargetCATValues(cats);
 
         auto & commissioner = CurrentCommissioner();
         ReturnErrorOnFailure(commissioner.IssueNOCChain(mNOCSRElements, mNodeId, &mDeviceNOCChainCallback));
@@ -101,5 +102,5 @@ private:
     chip::Callback::Callback<chip::Controller::OnNOCChainGeneration> mDeviceNOCChainCallback;
     chip::ByteSpan mNOCSRElements;
     chip::NodeId mNodeId;
-    chip::Optional<std::vector<uint32_t>> mCASEAuthTags;
+    chip::Optional<std::vector<uint64_t>> mTargetCATs;
 };

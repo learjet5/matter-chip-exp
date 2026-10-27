@@ -32,6 +32,8 @@ enum class MatterIPKType
     kOperational,
 };
 
+CHIP_ERROR NormalizeCATValue(uint64_t value, chip::CASEAuthTag & cat);
+
 /** Credentials embedded in a chip-exp JSON manifest. */
 class MatterCredentialConfig
 {
@@ -46,6 +48,9 @@ public:
     chip::ByteSpan GetPrivateKey() const { return chip::ByteSpan(mPrivateKey.data(), mPrivateKey.size()); }
     MatterIPKType GetIPKType() const { return mIPKType; }
     chip::ByteSpan GetIPK() const { return chip::ByteSpan(mIPK.data(), mIPK.size()); }
+    chip::FabricId GetFabricId() const { return mFabricId; }
+    chip::NodeId GetControllerNodeId() const { return mControllerNodeId; }
+    const chip::CATValues & GetControllerCATs() const { return mControllerCATs; }
 
 private:
     MatterCredentialMode mMode = MatterCredentialMode::kDefault;
@@ -56,6 +61,9 @@ private:
     std::vector<uint8_t> mPrivateKey;
     MatterIPKType mIPKType = MatterIPKType::kNone;
     std::vector<uint8_t> mIPK;
+    chip::FabricId mFabricId       = chip::kUndefinedFabricId;
+    chip::NodeId mControllerNodeId = chip::kUndefinedNodeId;
+    chip::CATValues mControllerCATs = chip::kUndefinedCATs;
 };
 
 /** Extends the stock provider with direct operational-IPK injection for imported fabrics. */
@@ -87,7 +95,7 @@ public:
 
     void SetNodeIdForNextNOCRequest(chip::NodeId nodeId) override { mNodeId = nodeId; }
     void SetFabricIdForNextNOCRequest(chip::FabricId fabricId) override { mFabricId = fabricId; }
-    void SetCATValuesForNextNOCRequest(chip::CATValues cats) { mCATs = cats; }
+    void SetTargetCATValues(chip::CATValues cats) { mTargetCATs = cats; }
 
     CHIP_ERROR GenerateNOCChainAfterValidation(chip::NodeId nodeId, chip::FabricId fabricId, const chip::CATValues & cats,
                                                const chip::Crypto::P256PublicKey & publicKey,
@@ -107,7 +115,7 @@ private:
     uint32_t mValidityEnd   = 0;
     chip::NodeId mNodeId    = 1;
     chip::FabricId mFabricId = 1;
-    chip::CATValues mCATs    = chip::kUndefinedCATs;
+    chip::CATValues mTargetCATs = chip::kUndefinedCATs;
     int64_t mSerialNumber    = 1;
     bool mConfigured         = false;
     bool mHasEpochIPK        = false;

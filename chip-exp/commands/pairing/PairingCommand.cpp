@@ -91,21 +91,20 @@ CHIP_ERROR PairingCommand::RunCommand()
 {
     CurrentCommissioner().RegisterPairingDelegate(this);
     // Clear the CATs in OperationalCredentialsIssuer
-    mCredIssuerCmds->SetCredentialIssuerCATValues(kUndefinedCATs);
+    mCredIssuerCmds->SetTargetCATValues(kUndefinedCATs);
 
     mDeviceIsICD = false;
 
-    if (mCASEAuthTags.HasValue() && mCASEAuthTags.Value().size() <= kMaxSubjectCATAttributeCount)
+    if (mTargetCATs.HasValue())
     {
+        VerifyOrReturnError(mTargetCATs.Value().size() <= kMaxSubjectCATAttributeCount, CHIP_ERROR_INVALID_ARGUMENT);
         CATValues cats = kUndefinedCATs;
-        for (size_t index = 0; index < mCASEAuthTags.Value().size(); ++index)
+        for (size_t index = 0; index < mTargetCATs.Value().size(); ++index)
         {
-            cats.values[index] = mCASEAuthTags.Value()[index];
+            ReturnErrorOnFailure(NormalizeCATValue(mTargetCATs.Value()[index], cats.values[index]));
         }
-        if (cats.AreValid())
-        {
-            mCredIssuerCmds->SetCredentialIssuerCATValues(cats);
-        }
+        VerifyOrReturnError(cats.AreValid(), CHIP_ERROR_INVALID_ARGUMENT);
+        mCredIssuerCmds->SetTargetCATValues(cats);
     }
     return RunInternal(mNodeId);
 }

@@ -68,8 +68,8 @@ cannot issue new NOCs or commission another device.
 
 ### ICAC mode
 
-ICAC mode uses an existing ICAC and its key pair to issue NOCs. The RCAC,
-ICAC, and IPK are returned with each generated chain:
+ICAC mode uses an existing RCAC/ICAC chain, the ICAC key pair, and the fabric
+IPK to generate NOCs:
 
 ```json
 {
@@ -78,24 +78,42 @@ ICAC, and IPK are returned with each generated chain:
   "icac": "<Base64 X.509 DER or Matter TLV certificate>",
   "icac_public_key": "<Base64 raw 65-byte P-256 public key>",
   "icac_private_key": "<Base64 raw 32-byte P-256 private key>",
+  "fabric_id": "0x1234",
+  "controller_nodeid": "0x112233",
+  "controller_cat": ["0xFFFFFFFD00010001"],
   "epoch_ipk": "<Base64 raw 16-byte epoch IPK>"
 }
 ```
 
-`operational_ipk` can instead initialize the local commissioner for an existing
-fabric. It cannot commission a new device because `AddNOC` requires the epoch
-IPK and the derivation is not reversible.
+`fabric_id` identifies the fabric used by both chip-exp's dynamically generated
+controller NOC and every target NOC it issues. `controller_nodeid` and
+`controller_cat` define the Node ID and CATs in chip-exp's own controller NOC.
+IDs and CATs are strings containing decimal or `0x`-prefixed hexadecimal
+integers. CATs may use either their raw 32-bit form (`0x00010001`) or their
+64-bit ACL subject form (`0xFFFFFFFD00010001`). Use an empty `controller_cat`
+array when the controller needs no CAT.
 
-Normal pairing commands use the configured issuer automatically. The local
-commissioner node ID can be selected with `--commissioner-nodeid`, and CATs for
-the commissioned node can be supplied with the existing `--case-auth-tags`
-option:
+Replacing `epoch_ipk` with `operational_ipk` can instead initialize the local commissioner
+for an existing fabric. It cannot commission a new device because `AddNOC` requires
+the epoch IPK and the derivation is not reversible.
+
+Once initialized, chip-exp can use its generated controller NOC to establish a
+CASE session with a device already on the configured fabric. For example:
 
 ```shell
-./build/chip-exp pairing code 0x12344321 MT:ONBOARDING_CODE \
+./build/chip-exp onoff toggle <device_node_id> <endpoint_id> \
   --credentials credentials/icac.json \
-  --commissioner-nodeid 0x112233 \
-  --case-auth-tags 0x00010001,0x00020001 \
+  --storage-directory .local/icac-state
+```
+
+Normal pairing commands use the configured issuer automatically. `--target-cat`
+sets CATs in the NOC issued to the device being commissioned; it does not change
+the controller CATs stored in the manifest:
+
+```shell
+./build/chip-exp pairing code <device_node_id> <pairing_code> \
+  --credentials credentials/icac.json \
+  --target-cat 0xFFFFFFFD00030001 \
   --storage-directory .local/icac-state
 ```
 
@@ -103,15 +121,15 @@ To sign a NOC for a previously obtained NOCSR directly, use
 `pairing issue-noc-chain`:
 
 ```shell
-./build/chip-exp pairing issue-noc-chain NOCSR_ELEMENTS_HEX 0x12344321 \
+./build/chip-exp pairing issue-noc-chain <nocsr_elements_hex> <device_node_id> \
   --credentials credentials/icac.json \
-  --case-auth-tags 0x00010001,0x00020001 \
+  --target-cat 0xFFFFFFFD00030001 \
   --storage-directory .local/icac-state
 ```
 
-CAT values are comma-separated 32-bit integers. The issuer checks that the
-configured ICAC key pair matches the ICAC certificate and gives generated NOCs
-the same validity interval as the ICAC.
+`--target-cat` accepts either the raw 32-bit CAT or its 64-bit ACL subject form.
+The issuer checks that the configured ICAC key pair matches the ICAC certificate
+and gives generated NOCs the same validity interval as the ICAC.
 
 ## Build
 
@@ -124,9 +142,11 @@ mkdir -p build
 cd build
 /path/to/connectedhomeip-1.6.0.0/scripts/configure \
   --project=/path/to/matter-chip-exp/chip-exp
-./ninja-build chip-exp
+./ninja-build
 ```
 
-The resulting binary is `build/chip-exp`. No changes to the Matter SDK source
-tree are required. The local SDK symlink is ignored by Git; the tracked
-`chip-exp/build_overrides` symlink resolves through it.
+The single build command produces `build/chip-exp`, the stock `build/chip-tool`,
+and `build/chip-cert`. To rebuild only one binary, pass its name to
+`./ninja-build`. No changes to the Matter SDK source tree are required. The
+local SDK symlink is ignored by Git; the tracked `chip-exp/build_overrides`
+symlink resolves through it.

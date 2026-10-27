@@ -75,7 +75,8 @@ public:
         AddArgument("bypass-attestation-verifier", 0, 1, &mBypassAttestationVerifier,
                     "Bypass the attestation verifier. If not provided or false, the attestation verifier is not bypassed."
                     " If true, the commissioning will continue in case of attestation verification failure.");
-        AddArgument("case-auth-tags", 1, UINT32_MAX, &mCASEAuthTags, "The CATs to be encoded in the NOC sent to the commissionee");
+        AddArgument("target-cat", 1, UINT64_MAX, &mTargetCATs,
+                    "CATs to encode in the target NOC, as 32-bit CATs or 64-bit ACL CAT subjects");
         AddArgument("icd-registration", 0, 1, &mICDRegistration,
                     "Whether to register for check-ins from ICDs during commissioning. Default: false");
         AddArgument("icd-check-in-nodeid", 0, UINT64_MAX, &mICDCheckInNodeId,
@@ -294,7 +295,7 @@ private:
     chip::Optional<bool> mPaseOnly;
     chip::Optional<bool> mSkipCommissioningComplete;
     chip::Optional<bool> mBypassAttestationVerifier;
-    chip::Optional<std::vector<uint32_t>> mCASEAuthTags;
+    chip::Optional<std::vector<uint64_t>> mTargetCATs;
     chip::Optional<char *> mCountryCode;
     chip::Optional<bool> mICDRegistration;
     chip::Optional<NodeId> mICDCheckInNodeId;

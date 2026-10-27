@@ -55,6 +55,8 @@ config("config") {
 }
 
 static_library("chip-tool-utils") {
+  output_name = "chip-exp-utils"
+
   sources = [
     "${chip_root}/src/controller/ExamplePersistentStorage.cpp",
     "${chip_root}/src/controller/ExamplePersistentStorage.h",
@@ -162,5 +164,9 @@ executable("chip-exp") {
 }
 
 group("default") {
-  deps = [ ":chip-exp" ]
+  deps = [
+    ":chip-exp",
+    "${chip_root}/examples/chip-tool:chip-tool",
+    "${chip_root}/src/tools/chip-cert:chip-cert",
+  ]
 }

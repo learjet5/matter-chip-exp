@@ -12,6 +12,8 @@
 #include <lib/support/logging/CHIPLogging.h>
 
 #include <algorithm>
+#include <cerrno>
+#include <cstdlib>
 #include <fstream>
 #include <limits>
 #include <utility>
@@ -88,6 +90,50 @@ CHIP_ERROR ReadCertificateField(const Json::Value & root, const char * field, st
     return CHIP_NO_ERROR;
 }
 
+CHIP_ERROR ReadIntegerValue(const Json::Value & valueNode, const char * field, uint64_t & output)
+{
+    VerifyOrReturnError(valueNode.isString(), CHIP_ERROR_INVALID_ARGUMENT,
+                        ChipLogError(chipTool, "Credential field '%s' must contain string integers", field));
+
+    const std::string value = valueNode.asString();
+    char * end              = nullptr;
+    errno                   = 0;
+    const unsigned long long parsed = std::strtoull(value.c_str(), &end, 0);
+    VerifyOrReturnError(!value.empty() && value.front() != '-' && errno != ERANGE && end != value.c_str() && *end == '\0',
+                        CHIP_ERROR_INVALID_ARGUMENT,
+                        ChipLogError(chipTool, "Credential field '%s' is not a valid integer", field));
+    output = static_cast<uint64_t>(parsed);
+    return CHIP_NO_ERROR;
+}
+
+CHIP_ERROR ReadIntegerField(const Json::Value & root, const char * field, uint64_t & output)
+{
+    VerifyOrReturnError(root.isMember(field), CHIP_ERROR_INVALID_ARGUMENT,
+                        ChipLogError(chipTool, "Credential manifest requires field '%s'", field));
+    return ReadIntegerValue(root[field], field, output);
+}
+
+CHIP_ERROR ReadCATValuesField(const Json::Value & root, const char * field, CATValues & output)
+{
+    VerifyOrReturnError(root.isMember(field) && root[field].isArray(), CHIP_ERROR_INVALID_ARGUMENT,
+                        ChipLogError(chipTool, "Credential manifest requires array field '%s'", field));
+    VerifyOrReturnError(root[field].size() <= kMaxSubjectCATAttributeCount, CHIP_ERROR_INVALID_ARGUMENT,
+                        ChipLogError(chipTool, "Credential field '%s' contains too many CATs", field));
+
+    output = kUndefinedCATs;
+    for (Json::ArrayIndex index = 0; index < root[field].size(); ++index)
+    {
+        uint64_t value;
+        ReturnErrorOnFailure(ReadIntegerValue(root[field][index], field, value));
+        VerifyOrReturnError(NormalizeCATValue(value, output.values[index]) == CHIP_NO_ERROR, CHIP_ERROR_INVALID_ARGUMENT,
+                            ChipLogError(chipTool, "Credential field '%s' contains an invalid CAT", field));
+    }
+
+    VerifyOrReturnError(output.AreValid(), CHIP_ERROR_INVALID_ARGUMENT,
+                        ChipLogError(chipTool, "Credential field '%s' contains invalid CATs", field));
+    return CHIP_NO_ERROR;
+}
+
 CHIP_ERROR CopyToMutableSpan(ByteSpan source, MutableByteSpan & destination)
 {
     VerifyOrReturnError(source.size() <= destination.size(), CHIP_ERROR_BUFFER_TOO_SMALL);
@@ -97,6 +143,21 @@ CHIP_ERROR CopyToMutableSpan(ByteSpan source, MutableByteSpan & destination)
 }
 
 } // namespace
+
+CHIP_ERROR NormalizeCATValue(uint64_t value, chip::CASEAuthTag & cat)
+{
+    if (value <= std::numeric_limits<chip::CASEAuthTag>::max())
+    {
+        cat = static_cast<chip::CASEAuthTag>(value);
+    }
+    else
+    {
+        VerifyOrReturnError(chip::IsCASEAuthTag(value), CHIP_ERROR_INVALID_ARGUMENT);
+        cat = chip::CASEAuthTagFromNodeId(value);
+    }
+
+    return chip::IsValidCASEAuthTag(cat) ? CHIP_NO_ERROR : CHIP_ERROR_INVALID_ARGUMENT;
+}
 
 CHIP_ERROR MatterCredentialConfig::Load(const char * manifestPath)
 {
@@ -152,6 +213,16 @@ CHIP_ERROR MatterCredentialConfig::Load(const char * manifestPath)
     if (mMode == MatterCredentialMode::kNOC)
     {
         ReturnErrorOnFailure(ReadCertificateField(root, "noc", mNOC));
+    }
+    else
+    {
+        ReturnErrorOnFailure(ReadIntegerField(root, "fabric_id", mFabricId));
+        ReturnErrorOnFailure(ReadIntegerField(root, "controller_nodeid", mControllerNodeId));
+        ReturnErrorOnFailure(ReadCATValuesField(root, "controller_cat", mControllerCATs));
+        VerifyOrReturnError(IsValidFabricId(mFabricId), CHIP_ERROR_INVALID_ARGUMENT,
+                            ChipLogError(chipTool, "Credential field 'fabric_id' is not a valid Matter fabric ID"));
+        VerifyOrReturnError(IsOperationalNodeId(mControllerNodeId), CHIP_ERROR_INVALID_ARGUMENT,
+                            ChipLogError(chipTool, "Credential field 'controller_nodeid' is not a valid operational node ID"));
     }
 
     VerifyOrReturnError(mRCAC.size() <= Controller::kMaxCHIPDERCertLength &&
@@ -309,7 +380,7 @@ CHIP_ERROR ConfiguredOperationalCredentialsIssuer::GenerateNOCChain(
 
     uint8_t nocBuffer[Controller::kMaxCHIPDERCertLength];
     MutableByteSpan noc(nocBuffer);
-    ReturnErrorOnFailure(IssueNOC(mNodeId, mFabricId, mCATs, publicKey, noc));
+    ReturnErrorOnFailure(IssueNOC(mNodeId, mFabricId, mTargetCATs, publicKey, noc));
 
     const ByteSpan icac(mICAC.data(), mICAC.size());
     const ByteSpan rcac(mRCAC.data(), mRCAC.size());
