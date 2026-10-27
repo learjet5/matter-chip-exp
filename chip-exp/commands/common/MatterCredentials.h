@@ -35,6 +35,8 @@ public:
     chip::ByteSpan GetNOC() const { return chip::ByteSpan(mNOC.data(), mNOC.size()); }
     chip::ByteSpan GetPublicKey() const { return chip::ByteSpan(mPublicKey.data(), mPublicKey.size()); }
     chip::ByteSpan GetPrivateKey() const { return chip::ByteSpan(mPrivateKey.data(), mPrivateKey.size()); }
+    // Returns the 16-byte EPOCH IPK (the IPK epoch key), NOT the derived operational group key.
+    // The SDK derives the operational key from this epoch value and the compressed fabric ID.
     chip::ByteSpan GetIPK() const { return chip::ByteSpan(mIPK.data(), mIPK.size()); }
 
 private:
@@ -44,7 +46,7 @@ private:
     std::vector<uint8_t> mNOC;
     std::vector<uint8_t> mPublicKey;
     std::vector<uint8_t> mPrivateKey;
-    std::vector<uint8_t> mIPK;
+    std::vector<uint8_t> mIPK; // 16-byte EPOCH IPK; the operational group key is derived by the SDK
 };
 
 /** Signs NOCs with an imported ICAC key while leaving the SDK unchanged. */
@@ -74,7 +76,7 @@ private:
     chip::Crypto::P256Keypair mICACKeypair;
     std::vector<uint8_t> mRCAC;
     std::vector<uint8_t> mICAC;
-    std::array<uint8_t, chip::Crypto::CHIP_CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES> mIPK{};
+    std::array<uint8_t, chip::Crypto::CHIP_CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES> mIPK{}; // 16-byte EPOCH IPK
     chip::Credentials::ChipDN mIssuerDN;
     uint32_t mValidityStart = 0;
     uint32_t mValidityEnd   = 0;

@@ -132,6 +132,12 @@ CHIP_ERROR MatterCredentialConfig::Load(const char * manifestPath)
 
     ReturnErrorOnFailure(ReadCertificateField(root, "rcac", mRCAC));
     ReturnErrorOnFailure(ReadCertificateField(root, "icac", mICAC));
+    // "ipk" is the 16-byte EPOCH Identity Protection Key (the IPK epoch key, i.e. the value an
+    // administrator provisions via AddNOC) -- NOT the derived operational group key. In NOC mode
+    // CHIPCommand feeds this to Credentials::SetSingleIpkEpochKey(); in ICAC mode it is handed back
+    // from GenerateNOCChain(). In both cases the SDK derives the operational key from this epoch
+    // value and the compressed fabric ID, so supplying an already-derived operational key here
+    // produces the wrong operational key and breaks CASE.
     ReturnErrorOnFailure(ReadBase64Field(root, "ipk", mIPK, Crypto::CHIP_CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES,
                                          Crypto::CHIP_CRYPTO_SYMMETRIC_KEY_LENGTH_BYTES));
 
@@ -253,6 +259,8 @@ CHIP_ERROR ConfiguredOperationalCredentialsIssuer::GenerateNOCChain(
 
     const ByteSpan icac(mICAC.data(), mICAC.size());
     const ByteSpan rcac(mRCAC.data(), mRCAC.size());
+    // mIPK is the EPOCH IPK; the commissioning flow installs it as the IPK epoch key and the SDK
+    // derives the operational group key from it (together with the compressed fabric ID).
     Crypto::IdentityProtectionKeySpan ipk(mIPK.data());
     onCompletion->mCall(onCompletion->mContext, CHIP_NO_ERROR, noc, icac, rcac, MakeOptional(ipk), Optional<NodeId>());
     return CHIP_NO_ERROR;

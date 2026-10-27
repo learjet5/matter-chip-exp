@@ -61,9 +61,13 @@ public:
 
     chip::Controller::OperationalCredentialsDelegate * GetCredentialIssuer() override
     {
+        // NOC mode imports a complete controller identity (NOC chain + operational key) and never
+        // issues NOCs. DeviceCommissioner::Init nonetheless requires a non-null operational
+        // credentials delegate, so hand back a valid-but-unused delegate: the operational NOC chain
+        // is installed directly via SetupParams, so this delegate's issuing methods are never invoked.
         if (mMode == MatterCredentialMode::kNOC)
         {
-            return nullptr;
+            return static_cast<chip::Controller::OperationalCredentialsDelegate *>(&mConfiguredIssuer);
         }
         return mMode == MatterCredentialMode::kICAC ? static_cast<chip::Controller::OperationalCredentialsDelegate *>(&mConfiguredIssuer)
                                                       : static_cast<chip::Controller::OperationalCredentialsDelegate *>(&mOpCredsIssuer);

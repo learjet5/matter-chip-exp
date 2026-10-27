@@ -24,7 +24,11 @@ commissioner. Every credential is embedded as a standard padded Base64 string.
 Certificate fields accept either X.509 DER or Matter TLV certificate bytes and
 are converted to X.509 DER internally. P-256 public and private key fields
 encode a raw 65-byte uncompressed point and a raw 32-byte scalar, respectively.
-The IPK field encodes 16 raw bytes.
+The IPK field encodes the 16-byte **epoch** IPK (the Identity Protection Key epoch
+key — the value an administrator provisions via `AddNOC`), **not** the derived
+operational group key. The SDK derives the operational key from this epoch value and
+the compressed fabric ID internally, so supplying an already-derived operational key
+here yields the wrong operational key and CASE session establishment will fail.
 
 Keep manifests outside the repository, or under the ignored `credentials/`
 directory. `chip-exp` logs the selected mode but never logs credential contents.
@@ -42,7 +46,7 @@ chain, operational key pair, and fabric IPK:
   "noc": "<Base64 X.509 DER or Matter TLV certificate>",
   "operational_public_key": "<Base64 raw 65-byte P-256 public key>",
   "operational_private_key": "<Base64 raw 32-byte P-256 private key>",
-  "ipk": "<Base64 raw 16-byte IPK>"
+  "ipk": "<Base64 raw 16-byte epoch IPK (not the derived operational key)>"
 }
 ```
 
@@ -72,7 +76,7 @@ ICAC, and IPK are returned with each generated chain:
   "icac": "<Base64 X.509 DER or Matter TLV certificate>",
   "icac_public_key": "<Base64 raw 65-byte P-256 public key>",
   "icac_private_key": "<Base64 raw 32-byte P-256 private key>",
-  "ipk": "<Base64 raw 16-byte IPK>"
+  "ipk": "<Base64 raw 16-byte epoch IPK (not the derived operational key)>"
 }
 ```
 
